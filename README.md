@@ -3,12 +3,11 @@
 A Dart library for interacting with anime APIs and playing videos.
 
 ## Features
-
-- **Search Anime**: Search for anime titles from supported sources (currently AllAnime).
-- **Fetch Episodes**: Retrieve available episodes for a selected anime.
-- **Get Video Sources**: Extract video stream URLs (HLS/MP4) for episodes.
-- **Play Video**: Launch external video players (MPV, VLC, IINA) or open in browser.
-- **Cross-Platform**: Works on Windows, macOS, Linux, and Android.
+ - **Search Anime**: Search for anime titles from supported sources (AllAnime and AnimePahe).
+ - **Fetch Episodes**: Retrieve available episodes for a selected anime.
+ - **Get Video Sources**: Extract video stream URLs (HLS/MP4) for episodes.
+ - **Play Video**: Launch external video players (MPV, VLC, IINA) or open in browser.
+ - **Cross-Platform**: Works on Windows, macOS, Linux, and Android.
 
 ## Getting started
 
@@ -28,7 +27,7 @@ Note: This is optional. You can implement your own player logic or use other pac
 
 ## Usage
 
-You can run the example script to see the library in action:
+You can run the example script to see the library in action. The CLI lets you choose between AllAnime and AnimePahe sources:
 
 ```bash
 dart run example/aimi_lib_example.dart
@@ -41,7 +40,7 @@ import 'package:aimi_lib/aimi_lib.dart';
 
 void main() async {
   // Initialize source
-  final source = AllAnimeSource();
+  final source = AllAnimeSource(); // or AnimePaheSource()
 
   // Search for anime
   final results = await source.searchAnime('Naruto');
