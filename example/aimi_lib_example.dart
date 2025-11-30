@@ -2,8 +2,17 @@ import 'dart:io';
 import 'package:aimi_lib/aimi_lib.dart';
 
 void main() async {
-  // Default to AllAnimeSource for now
-  AnimeSource source = AllAnimeSource();
+  print('Select source:');
+  print('1. AllAnime');
+  print('2. AnimePahe');
+  final sourceChoice = stdin.readLineSync();
+
+  AnimeSource source;
+  if (sourceChoice == '2') {
+    source = AnimePaheSource();
+  } else {
+    source = AllAnimeSource();
+  }
 
   print('Using source: ${source.name}');
 

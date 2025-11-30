@@ -76,3 +76,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## Credits
 
 - Special thanks to [ani-cli](https://github.com/pystardust/ani-cli) for providing the base logic and inspiration.
+- Special thanks to [animepahe-dl](https://github.com/KevCui/animepahe-dl) for the AnimePahe source logic.
