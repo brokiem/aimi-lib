@@ -5,11 +5,14 @@ void main() async {
   print('Select source:');
   print('1. AllAnime');
   print('2. AnimePahe');
+  print('3. Anizone');
   final sourceChoice = stdin.readLineSync();
 
   AnimeSource source;
   if (sourceChoice == '2') {
     source = AnimePaheSource();
+  } else if (sourceChoice == '3') {
+    source = AnizoneSource();
   } else {
     source = AllAnimeSource();
   }
