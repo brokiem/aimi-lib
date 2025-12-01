@@ -1,37 +1,40 @@
 import 'dart:convert';
 import 'package:html/parser.dart' as html_parser;
 import 'package:http/http.dart' as http;
-import '../models.dart';
-import '../utils.dart';
-import 'anime_source.dart';
+import '../models/anime_details.dart';
+import '../models/streamable_anime.dart';
+import '../models/episode.dart';
+import '../models/stream_source.dart';
+import '../utils/string_utils.dart';
+import '../utils/packer.dart';
+import 'stream_provider.dart';
 
-class AnimePaheSource implements AnimeSource {
+/// A [StreamProvider] implementation for AnimePahe.
+class AnimePahe implements StreamProvider {
   @override
   String get name => 'AnimePahe';
 
   static const String _authority = 'animepahe.si';
-  static const String _userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36';
+  static const String _userAgent =
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36';
 
   final http.Client _client;
   late final String _cookie;
 
-  AnimePaheSource({http.Client? client}) : _client = client ?? http.Client() {
+  AnimePahe({http.Client? client}) : _client = client ?? http.Client() {
     _cookie = '__ddg2_=${StringUtils.generateRandomString(16)}';
   }
 
   Future<http.Response> _get(Uri uri, {Map<String, String>? headers}) async {
     final response = await _client.get(
       uri,
-      headers: {
-        'User-Agent': _userAgent,
-        'Cookie': _cookie,
-        ...?headers,
-      },
+      headers: {'User-Agent': _userAgent, 'Cookie': _cookie, ...?headers},
     );
 
     if (response.statusCode != 200) {
       throw Exception(
-          'Request to $uri failed with status: ${response.statusCode}');
+        'Request to $uri failed with status: ${response.statusCode}',
+      );
     }
     return response;
   }
@@ -42,10 +45,19 @@ class AnimePaheSource implements AnimeSource {
   }
 
   @override
-  Future<List<Anime>> searchAnime(String query) async {
+  Future<List<StreamableAnime>> search(dynamic query) async {
+    String searchQuery;
+    if (query is AnimeDetails) {
+      searchQuery = query.title;
+    } else if (query is String) {
+      searchQuery = query;
+    } else {
+      throw ArgumentError('Query must be a String or AnimeDetails object');
+    }
+
     final uri = Uri.https(_authority, '/api', {
       'm': 'search',
-      'q': query,
+      'q': searchQuery,
     });
 
     try {
@@ -54,12 +66,11 @@ class AnimePaheSource implements AnimeSource {
 
       final results = data['data'] as List;
       return results.map((e) {
-        return Anime(
+        return StreamableAnime(
           id: e['session'],
-          name: e['title'],
+          title: e['title'],
           availableEpisodes: e['episodes'],
-          typename: e['type'],
-          source: this,
+          stream: this,
         );
       }).toList();
     } catch (e) {
@@ -68,7 +79,8 @@ class AnimePaheSource implements AnimeSource {
   }
 
   @override
-  Future<List<Episode>> getEpisodes(String animeId) async {
+  Future<List<Episode>> getEpisodes(StreamableAnime anime) async {
+    final animeId = anime.id;
     final episodes = <Episode>[];
     int page = 1;
     int lastPage = 1;
@@ -91,8 +103,8 @@ class AnimePaheSource implements AnimeSource {
             return Episode(
               animeId: animeId,
               number: e['episode'].toString(),
-              id: e['session'],
-              source: this,
+              sourceId: e['session'],
+              stream: this,
             );
           }),
         );
@@ -106,49 +118,64 @@ class AnimePaheSource implements AnimeSource {
   }
 
   @override
-  Future<List<VideoSource>> getEpisodeSources(
+  Future<List<StreamSource>> getSources(
     Episode episode, {
-    String mode = 'sub',
+    Map<String, dynamic>? options,
   }) async {
-    if (episode.id == null) {
+    if (episode.sourceId == null) {
       throw Exception('Episode ID (session) is required for AnimePahe');
     }
 
-    final uri = Uri.https(_authority, '/play/${episode.animeId}/${episode.id}');
+    final String mode = options?['mode'] ?? 'sub';
+
+    final uri = Uri.https(
+      _authority,
+      '/play/${episode.animeId}/${episode.sourceId}',
+    );
 
     try {
-      final response = await _get(uri, headers: {'Referer': 'https://$_authority'});
+      final response = await _get(
+        uri,
+        headers: {'Referer': 'https://$_authority'},
+      );
       final document = html_parser.parse(response.body);
       final buttons = document.querySelectorAll('#resolutionMenu > button');
 
       final targetAudio = mode == 'dub' ? 'eng' : 'jpn';
 
-      final tasks = buttons.where((button) {
-        final audio = button.attributes['data-audio'];
-        return audio == null || audio == targetAudio;
-      }).map((button) {
-        final src = button.attributes['data-src'];
-        final kwik = button.attributes['data-kwik'];
-        final resolution = button.attributes['data-resolution'] ?? 'unknown';
-        final url = src ?? kwik;
+      final tasks = buttons
+          .where((button) {
+            final audio = button.attributes['data-audio'];
+            return audio == null || audio == targetAudio;
+          })
+          .map((button) {
+            final src = button.attributes['data-src'];
+            final kwik = button.attributes['data-kwik'];
+            final resolution =
+                button.attributes['data-resolution'] ?? 'unknown';
+            final url = src ?? kwik;
 
-        if (url != null) {
-          return _processEmbed(url, resolution);
-        }
-        return null;
-      }).whereType<Future<VideoSource?>>();
+            if (url != null) {
+              return _processEmbed(url, resolution);
+            }
+            return null;
+          })
+          .whereType<Future<StreamSource?>>();
 
       final results = await Future.wait(tasks);
-      return results.whereType<VideoSource>().toList();
+      return results.whereType<StreamSource>().toList();
     } catch (e) {
       throw Exception('Error getting episode sources: $e');
     }
   }
 
-  Future<VideoSource?> _processEmbed(String url, String quality) async {
+  Future<StreamSource?> _processEmbed(String url, String quality) async {
     try {
       final uri = Uri.parse(url);
-      final response = await _get(uri, headers: {'Referer': 'https://$_authority'});
+      final response = await _get(
+        uri,
+        headers: {'Referer': 'https://$_authority'},
+      );
 
       // Regex to capture the arguments of the packed function
       // eval(function(p,a,c,k,e,d){...}(args))
@@ -169,7 +196,7 @@ class AnimePaheSource implements AnimeSource {
         final sourceMatch = sourceRegex.firstMatch(unpacked);
 
         if (sourceMatch != null) {
-          return VideoSource(
+          return StreamSource(
             url: sourceMatch.group(1)!,
             quality: quality,
             type: 'hls',
@@ -183,7 +210,6 @@ class AnimePaheSource implements AnimeSource {
     return null;
   }
 
-  @override
   void close() {
     _client.close();
   }

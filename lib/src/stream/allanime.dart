@@ -1,11 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import '../models.dart';
-import '../utils.dart';
-import 'anime_source.dart';
+import '../models/anime_details.dart';
+import '../models/streamable_anime.dart';
+import '../models/episode.dart';
+import '../models/stream_source.dart';
+import '../utils/decryptor.dart';
+import 'stream_provider.dart';
 
-class AllAnimeSource implements AnimeSource {
+/// A [StreamProvider] implementation for AllAnime.
+class AllAnime implements StreamProvider {
   @override
   String get name => 'AllAnime';
 
@@ -16,15 +20,28 @@ class AllAnimeSource implements AnimeSource {
 
   final http.Client _client;
 
-  AllAnimeSource({http.Client? client}) : _client = client ?? http.Client();
+  AllAnime({http.Client? client}) : _client = client ?? http.Client();
 
   @override
-  Future<List<Anime>> searchAnime(String query) async {
+  Future<List<StreamableAnime>> search(dynamic query) async {
+    String searchQuery;
+    if (query is AnimeDetails) {
+      searchQuery = query.title;
+    } else if (query is String) {
+      searchQuery = query;
+    } else {
+      throw ArgumentError('Query must be a String or AnimeDetails object');
+    }
+
     const String searchGql =
         'query( \$search: SearchInput \$limit: Int \$page: Int \$translationType: VaildTranslationTypeEnumType \$countryOrigin: VaildCountryOriginEnumType ) { shows( search: \$search limit: \$limit page: \$page translationType: \$translationType countryOrigin: \$countryOrigin ) { edges { _id name availableEpisodes __typename } }}';
 
     final variables = {
-      "search": {"allowAdult": false, "allowUnknown": false, "query": query},
+      "search": {
+        "allowAdult": false,
+        "allowUnknown": false,
+        "query": searchQuery,
+      },
       "limit": 40,
       "page": 1,
       "translationType": "sub",
@@ -44,7 +61,22 @@ class AllAnimeSource implements AnimeSource {
         final data = jsonDecode(response.body);
         final edges = data['data']['shows']['edges'] as List?;
         if (edges == null) return [];
-        return edges.map((e) => Anime.fromJson(e, source: this)).toList();
+        return edges.map((e) {
+          final availableEpisodes = e['availableEpisodes'];
+          int? eps;
+          if (availableEpisodes is int) {
+            eps = availableEpisodes;
+          } else if (availableEpisodes is Map) {
+            eps = availableEpisodes['sub'] ?? availableEpisodes['dub'];
+          }
+
+          return StreamableAnime(
+            id: (e['_id'] ?? '') as String,
+            title: (e['name'] ?? 'Unknown') as String,
+            availableEpisodes: eps,
+            stream: this,
+          );
+        }).toList();
       } else {
         throw Exception('Failed to search anime: ${response.statusCode}');
       }
@@ -54,7 +86,8 @@ class AllAnimeSource implements AnimeSource {
   }
 
   @override
-  Future<List<Episode>> getEpisodes(String animeId) async {
+  Future<List<Episode>> getEpisodes(StreamableAnime anime) async {
+    final animeId = anime.id;
     const String episodesListGql =
         'query (\$showId: String!) { show( _id: \$showId ) { _id availableEpisodesDetail }}';
 
@@ -97,14 +130,7 @@ class AllAnimeSource implements AnimeSource {
           });
 
         return sortedEps
-            .map(
-              (e) => Episode(
-                animeId: animeId,
-                number: e,
-                sourceUrls: [],
-                source: this,
-              ),
-            )
+            .map((e) => Episode(animeId: animeId, number: e, stream: this))
             .toList();
       } else {
         throw Exception('Failed to get episodes: ${response.statusCode}');
@@ -115,12 +141,14 @@ class AllAnimeSource implements AnimeSource {
   }
 
   @override
-  Future<List<VideoSource>> getEpisodeSources(
+  Future<List<StreamSource>> getSources(
     Episode episode, {
-    String mode = 'sub',
+    Map<String, dynamic>? options,
   }) async {
     final animeId = episode.animeId;
     final episodeNumber = episode.number;
+
+    final String mode = options?['mode'] ?? 'sub';
 
     const String episodeEmbedGql =
         'query (\$showId: String!, \$translationType: VaildTranslationTypeEnumType!, \$episodeString: String!) { episode( showId: \$showId translationType: \$translationType episodeString: \$episodeString ) { episodeString sourceUrls }}';
@@ -166,8 +194,8 @@ class AllAnimeSource implements AnimeSource {
     }
   }
 
-  Future<List<VideoSource>> _processSource(dynamic source) async {
-    List<VideoSource> sources = [];
+  Future<List<StreamSource>> _processSource(dynamic source) async {
+    List<StreamSource> sources = [];
     try {
       final sourceUrl = source['sourceUrl'];
       final sourceName = source['sourceName'];
@@ -193,11 +221,11 @@ class AllAnimeSource implements AnimeSource {
     return sources;
   }
 
-  Future<List<VideoSource>> _parseLinks(
+  Future<List<StreamSource>> _parseLinks(
     String responseBody,
     String? sourceName,
   ) async {
-    List<VideoSource> sources = [];
+    List<StreamSource> sources = [];
 
     String? m3u8Referer;
     final refererMatch = RegExp(
@@ -216,7 +244,7 @@ class AllAnimeSource implements AnimeSource {
       if (url.contains('.m3u8')) {
         await _parseM3u8(url, m3u8Referer, sources);
       } else {
-        sources.add(VideoSource(url: url, quality: quality, type: 'mp4'));
+        sources.add(StreamSource(url: url, quality: quality, type: 'mp4'));
       }
     }
 
@@ -228,7 +256,7 @@ class AllAnimeSource implements AnimeSource {
       if (url.contains('master.m3u8')) {
         await _parseM3u8(url, m3u8Referer, sources);
       } else {
-        sources.add(VideoSource(url: url, quality: 'auto', type: 'hls'));
+        sources.add(StreamSource(url: url, quality: 'auto', type: 'hls'));
       }
     }
 
@@ -238,7 +266,7 @@ class AllAnimeSource implements AnimeSource {
   Future<void> _parseM3u8(
     String url,
     String? referer,
-    List<VideoSource> sources,
+    List<StreamSource> sources,
   ) async {
     try {
       final m3u8Response = await _client
@@ -269,7 +297,7 @@ class AllAnimeSource implements AnimeSource {
                   streamUrl = base + streamUrl;
                 }
                 sources.add(
-                  VideoSource(url: streamUrl, quality: quality, type: 'hls'),
+                  StreamSource(url: streamUrl, quality: quality, type: 'hls'),
                 );
                 foundStream = true;
               }
@@ -277,15 +305,14 @@ class AllAnimeSource implements AnimeSource {
           }
         }
         if (!foundStream) {
-          sources.add(VideoSource(url: url, quality: 'auto', type: 'hls'));
+          sources.add(StreamSource(url: url, quality: 'auto', type: 'hls'));
         }
       }
     } catch (e) {
-      sources.add(VideoSource(url: url, quality: 'auto', type: 'hls'));
+      sources.add(StreamSource(url: url, quality: 'auto', type: 'hls'));
     }
   }
 
-  @override
   void close() {
     _client.close();
   }

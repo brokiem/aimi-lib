@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'models.dart';
+import '../models/stream_source.dart';
 
 enum PlayerType { mpv, vlc, iina, androidMpv, androidVlc, browser }
 
@@ -10,7 +10,7 @@ class Player {
   /// [title] is optional and sets the window title for the player.
   /// Throws an exception if no player is found or if playback fails.
   static Future<void> play(
-    VideoSource source, {
+    StreamSource source, {
     PlayerType? player,
     String? title,
   }) async {
@@ -47,7 +47,7 @@ class Player {
     }
   }
 
-  static Future<void> _playMpv(VideoSource source, String? title) async {
+  static Future<void> _playMpv(StreamSource source, String? title) async {
     final args = <String>[source.url];
     if (title != null) args.add('--force-media-title=$title');
 
@@ -68,7 +68,7 @@ class Player {
     await _runPlayerProcess('mpv', args);
   }
 
-  static Future<void> _playVlc(VideoSource source, String? title) async {
+  static Future<void> _playVlc(StreamSource source, String? title) async {
     final args = <String>[source.url];
     if (title != null) args.add('--meta-title=$title');
 
@@ -84,7 +84,7 @@ class Player {
     await _runPlayerProcess('vlc', args);
   }
 
-  static Future<void> _playIina(VideoSource source, String? title) async {
+  static Future<void> _playIina(StreamSource source, String? title) async {
     final args = <String>[source.url];
 
     // IINA CLI args are slightly different, but it supports mpv options via --mpv-option
@@ -119,7 +119,10 @@ class Player {
     }
   }
 
-  static Future<void> _playAndroidMpv(VideoSource source, String? title) async {
+  static Future<void> _playAndroidMpv(
+    StreamSource source,
+    String? title,
+  ) async {
     // am start --user 0 -a android.intent.action.VIEW -d "$episode" -n is.xyz.mpv/.MPVActivity
     // Passing headers to Android intents is not standard for all players.
     // MPV-Android might support extras, but it's undocumented or varies.
@@ -137,7 +140,10 @@ class Player {
     ]);
   }
 
-  static Future<void> _playAndroidVlc(VideoSource source, String? title) async {
+  static Future<void> _playAndroidVlc(
+    StreamSource source,
+    String? title,
+  ) async {
     final args = [
       'start',
       '--user',
@@ -155,7 +161,7 @@ class Player {
     await Process.run('am', args);
   }
 
-  static Future<void> _playBrowser(VideoSource source) async {
+  static Future<void> _playBrowser(StreamSource source) async {
     final url = source.url;
     if (Platform.isWindows) {
       await Process.run('start', [url], runInShell: true);

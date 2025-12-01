@@ -1,9 +1,13 @@
 import 'package:html/parser.dart' as parser;
 import 'package:http/http.dart' as http;
-import '../models.dart';
-import 'anime_source.dart';
+import '../models/anime_details.dart';
+import '../models/streamable_anime.dart';
+import '../models/episode.dart';
+import '../models/stream_source.dart';
+import 'stream_provider.dart';
 
-class AnizoneSource implements AnimeSource {
+/// A [StreamProvider] implementation for Anizone.
+class Anizone implements StreamProvider {
   @override
   String get name => 'Anizone';
 
@@ -17,11 +21,20 @@ class AnizoneSource implements AnimeSource {
 
   final http.Client _client;
 
-  AnizoneSource({http.Client? client}) : _client = client ?? http.Client();
+  Anizone({http.Client? client}) : _client = client ?? http.Client();
 
   @override
-  Future<List<Anime>> searchAnime(String query) async {
-    final uri = Uri.parse('$_baseUrl/anime?search=$query');
+  Future<List<StreamableAnime>> search(dynamic query) async {
+    String searchQuery;
+    if (query is AnimeDetails) {
+      searchQuery = query.title;
+    } else if (query is String) {
+      searchQuery = query;
+    } else {
+      throw ArgumentError('Query must be a String or AnimeDetails object');
+    }
+
+    final uri = Uri.parse('$_baseUrl/anime?search=$searchQuery');
 
     try {
       final response = await _client.get(uri, headers: _headers);
@@ -32,7 +45,7 @@ class AnizoneSource implements AnimeSource {
       }
 
       var document = parser.parse(response.body);
-      List<Anime> results = [];
+      List<StreamableAnime> results = [];
 
       var items = document.querySelectorAll(
         'div.grid > div.relative.overflow-hidden',
@@ -55,12 +68,14 @@ class AnizoneSource implements AnimeSource {
             episodeCount = int.tryParse(epsMatch.group(1) ?? '');
           }
 
-          results.add(Anime(
-            id: href,
-            name: title,
-            availableEpisodes: episodeCount,
-            source: this,
-          ));
+          results.add(
+            StreamableAnime(
+              id: href,
+              title: title,
+              availableEpisodes: episodeCount,
+              stream: this,
+            ),
+          );
         }
       }
       return results;
@@ -70,7 +85,8 @@ class AnizoneSource implements AnimeSource {
   }
 
   @override
-  Future<List<Episode>> getEpisodes(String animeId) async {
+  Future<List<Episode>> getEpisodes(StreamableAnime anime) async {
+    final animeId = anime.id;
     try {
       final response = await _client.get(Uri.parse(animeId), headers: _headers);
       if (response.statusCode != 200) {
@@ -94,12 +110,14 @@ class AnizoneSource implements AnimeSource {
           number = numMatch.group(1)!;
         }
 
-        episodes.add(Episode(
-          animeId: animeId,
-          number: number,
-          id: href,
-          source: this,
-        ));
+        episodes.add(
+          Episode(
+            animeId: animeId,
+            number: number,
+            sourceId: href,
+            stream: this,
+          ),
+        );
       }
 
       return episodes;
@@ -109,15 +127,15 @@ class AnizoneSource implements AnimeSource {
   }
 
   @override
-  Future<List<VideoSource>> getEpisodeSources(
+  Future<List<StreamSource>> getSources(
     Episode episode, {
-    String mode = 'sub',
+    Map<String, dynamic>? options,
   }) async {
-    if (episode.id == null) return [];
+    if (episode.sourceId == null) return [];
 
     try {
       final response = await _client.get(
-        Uri.parse(episode.id!),
+        Uri.parse(episode.sourceId!),
         headers: _headers,
       );
       if (response.statusCode != 200) {
@@ -125,7 +143,7 @@ class AnizoneSource implements AnimeSource {
       }
 
       var document = parser.parse(response.body);
-      List<VideoSource> sources = [];
+      List<StreamSource> sources = [];
 
       var player = document.querySelector('media-player');
 
@@ -137,12 +155,14 @@ class AnizoneSource implements AnimeSource {
             type = 'mp4';
           }
 
-          sources.add(VideoSource(
-            url: streamUrl,
-            quality: 'default',
-            type: type,
-            headers: _headers,
-          ));
+          sources.add(
+            StreamSource(
+              url: streamUrl,
+              quality: 'default',
+              type: type,
+              headers: _headers,
+            ),
+          );
         }
       }
 
@@ -152,7 +172,6 @@ class AnizoneSource implements AnimeSource {
     }
   }
 
-  @override
   void close() {
     _client.close();
   }
