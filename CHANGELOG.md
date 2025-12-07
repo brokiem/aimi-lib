@@ -1,3 +1,8 @@
+## 3.0.0
+
+- **New Feature**: Refactored `AnimeDetails` to include additional metadata fields: `titleEn`, `titleJp`, `titleSynonyms`, `type`, `aired`, `airedInt`, `member`, `rank`, `tags`, `duration`, `source`, `season`, `episodes`, `lastEpisode`, and `schedule`.
+- **Update**: Updated `Kuroiru` provider to populate the new `AnimeDetails` fields.
+
 ## 2.0.0
 
 - **New Feature**: Added `MetadataProvider` interface for fetching anime details (synopsis, rating, genres, etc.).

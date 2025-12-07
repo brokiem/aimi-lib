@@ -70,12 +70,29 @@ class Kuroiru implements MetadataProvider {
       return AnimeDetails(
         id: id,
         title: data['title'] ?? 'Unknown',
+        titleEn: data['title_en'],
+        titleJp: data['title_jp'],
+        titleSynonyms: (data['title_synonyms'] as List?)
+            ?.map((e) => e.toString())
+            .toList(),
         image: _processImageUrl(data['picture']),
         description: info['synopsis'],
+        type: info['type'],
+        aired: info['aired'],
+        airedInt: info['airedint'],
         rating: info['rating'],
         score: info['score'] is num ? (info['score'] as num).toDouble() : null,
+        member: info['member'],
+        rank: info['rank'],
         genres: (info['genres'] as List?)?.map((e) => e.toString()).toList(),
+        tags: info['tags'],
+        duration: info['duration'],
         studios: (info['studios'] as List?)?.map((e) => e.toString()).toList(),
+        source: info['source'],
+        season: info['season'],
+        episodes: data['episodes'],
+        lastEpisode: data['lastep'],
+        schedule: data['schedule'],
         status: data['status'],
       );
     } catch (e) {
